@@ -20,7 +20,7 @@ import (
 	R "github.com/Dreamacro/clash/rules"
 	T "github.com/Dreamacro/clash/tunnel"
 
-	yaml "gopkg.in/yaml.v2"
+	"gopkg.in/yaml.v2"
 )
 
 // General config
@@ -36,6 +36,13 @@ type General struct {
 	ExternalController string       `json:"-"`
 	ExternalUI         string       `json:"-"`
 	Secret             string       `json:"-"`
+}
+
+type Tun struct {
+	Enable    bool   `yaml:"enable"`
+	DeviceURL string `yaml:"device-url"`
+	Gateway   string `yaml:"gateway"`
+	Mirror    string `yaml:"mirror"`
 }
 
 // DNS config
@@ -66,6 +73,7 @@ type Experimental struct {
 // Config is clash config manager
 type Config struct {
 	General      *General
+	Tun          *Tun
 	DNS          *DNS
 	Experimental *Experimental
 	Hosts        *trie.Trie
@@ -73,6 +81,13 @@ type Config struct {
 	Users        []auth.AuthUser
 	Proxies      map[string]C.Proxy
 	Providers    map[string]provider.ProxyProvider
+}
+
+type RawTun struct {
+	Enable    bool   `yaml:"enable"`
+	DeviceURL string `yaml:"device-url"`
+	Gateway   string `yaml:"gateway"`
+	Mirror    string `yaml:"mirror"`
 }
 
 type RawDNS struct {
@@ -108,6 +123,7 @@ type RawConfig struct {
 
 	ProxyProvider map[string]map[string]interface{} `yaml:"proxy-providers"`
 	Hosts         map[string]string                 `yaml:"hosts"`
+	Tun           RawTun                            `yaml:"tun"`
 	DNS           RawDNS                            `yaml:"dns"`
 	Experimental  Experimental                      `yaml:"experimental"`
 	Proxy         []map[string]interface{}          `yaml:"proxies"`
@@ -145,6 +161,12 @@ func UnmarshalRawConfig(buf []byte) (*RawConfig, error) {
 		ProxyGroup:     []map[string]interface{}{},
 		Experimental: Experimental{
 			IgnoreResolveFail: true,
+		},
+		Tun: RawTun{
+			Enable:    false,
+			DeviceURL: "",
+			Gateway:   "",
+			Mirror:    "",
 		},
 		DNS: RawDNS{
 			Enable:      false,
@@ -195,6 +217,12 @@ func ParseRawConfig(rawCfg *RawConfig) (*Config, error) {
 		return nil, err
 	}
 	config.Rules = rules
+
+	tun, err := parseTun(rawCfg.Tun)
+	if err != nil {
+		return nil, err
+	}
+	config.Tun = tun
 
 	dnsCfg, err := parseDNS(rawCfg.DNS)
 	if err != nil {
@@ -546,6 +574,15 @@ func parseFallbackIPCIDR(ips []string) ([]*net.IPNet, error) {
 	}
 
 	return ipNets, nil
+}
+
+func parseTun(cfg RawTun) (*Tun, error) {
+	return &Tun{
+		Enable:    cfg.Enable,
+		DeviceURL: cfg.DeviceURL,
+		Gateway:   cfg.Gateway,
+		Mirror:    cfg.Mirror,
+	}, nil
 }
 
 func parseDNS(cfg RawDNS) (*DNS, error) {

@@ -83,6 +83,7 @@ func ApplyConfig(cfg *config.Config, force bool) {
 	}
 	updateProxies(cfg.Proxies, cfg.Providers)
 	updateRules(cfg.Rules)
+	updateTun(cfg.Tun)
 	updateDNS(cfg.DNS)
 	updateHosts(cfg.Hosts)
 	updateExperimental(cfg)
@@ -119,6 +120,16 @@ func updateExperimental(c *config.Config) {
 	} else {
 		dialer.DialHook = nil
 		dialer.ListenPacketHook = nil
+	}
+}
+
+func updateTun(c *config.Tun) {
+	if c.Enable == false {
+		_ = P.ReCreateTun("", "", "")
+		return
+	}
+	if err := P.ReCreateTun(c.DeviceURL, c.Gateway, c.Mirror); err != nil {
+		log.Errorln("Start Tun adapter error: %s", err.Error())
 	}
 }
 

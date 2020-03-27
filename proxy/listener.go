@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"fmt"
+	"github.com/Dreamacro/clash/proxy/tun"
 	"net"
 	"strconv"
 
@@ -20,6 +21,7 @@ var (
 	httpListener     *http.HttpListener
 	redirListener    *redir.RedirListener
 	redirUDPListener *redir.RedirUDPListener
+	tunAdapter       *tun.Tun
 )
 
 type listener interface {
@@ -154,6 +156,25 @@ func ReCreateRedir(port int) error {
 	redirUDPListener, err = redir.NewRedirUDPProxy(addr)
 	if err != nil {
 		log.Warnln("Failed to start Redir UDP Listener: %s", err)
+	}
+
+	return nil
+}
+
+func ReCreateTun(device, gateway, mirror string) error {
+	if tunAdapter != nil {
+		tunAdapter.Close()
+		tunAdapter = nil
+	}
+
+	if len(device) == 0 {
+		return nil
+	}
+
+	var err error
+	tunAdapter, err = tun.NewTunProxy(device, gateway, mirror)
+	if err != nil {
+		return err
 	}
 
 	return nil
