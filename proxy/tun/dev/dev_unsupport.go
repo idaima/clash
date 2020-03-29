@@ -1,4 +1,4 @@
-// +build !linux,!android,!darwin
+// +build !linux,!android
 
 package dev
 
@@ -9,6 +9,6 @@ import (
 	"net/url"
 )
 
-func OpenTunDevice(_ *url.URL) (Device, error) {
+func OpenTunDevice(deviceURL *url.URL) (Device, error) {
 	return nil, errors.New("Unsupported platform " + runtime.GOOS + "/" + runtime.GOARCH)
 }
