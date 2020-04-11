@@ -1,7 +1,6 @@
 package outboundgroup
 
 import (
-	"context"
 	"encoding/json"
 	"time"
 
@@ -22,20 +21,8 @@ func (u *URLTest) Now() string {
 	return u.fast().Name()
 }
 
-func (u *URLTest) DialContext(ctx context.Context, metadata *C.Metadata) (c C.Conn, err error) {
-	c, err = u.fast().DialContext(ctx, metadata)
-	if err == nil {
-		c.AppendToChains(u)
-	}
-	return c, err
-}
-
-func (u *URLTest) DialUDP(metadata *C.Metadata) (C.PacketConn, error) {
-	pc, err := u.fast().DialUDP(metadata)
-	if err == nil {
-		pc.AppendToChains(u)
-	}
-	return pc, err
+func (u *URLTest) Dialer(parent C.ProxyDialer) C.ProxyDialer {
+	return newGroupDialer(u, u.fast().Dialer(parent))
 }
 
 func (u *URLTest) proxies() []C.Proxy {

@@ -1,7 +1,9 @@
 package tunnel
 
 import (
+	"context"
 	"fmt"
+	"github.com/Dreamacro/clash/adapters/outbound"
 	"net"
 	"runtime"
 	"sync"
@@ -214,18 +216,18 @@ func handleUDPConn(packet *inbound.PacketAdapter) {
 				return
 			}
 
-			rawPc, err := proxy.DialUDP(metadata)
+			rawPc, connection, err := proxy.Dialer(outbound.NewRootDialer()).DialUDP(metadata)
 			if err != nil {
 				log.Warnln("[UDP] dial %s error: %s", proxy.Name(), err.Error())
 				natTable.Delete(lockKey)
 				wg.Done()
 				return
 			}
-			pc = newUDPTracker(rawPc, DefaultManager, metadata, rule)
+			pc = newUDPTracker(rawPc, connection, DefaultManager, metadata, rule)
 
 			switch true {
 			case rule != nil:
-				log.Infoln("[UDP] %s --> %v match %s using %s", metadata.SourceAddress(), metadata.String(), rule.RuleType().String(), rawPc.Chains().String())
+				log.Infoln("[UDP] %s --> %v match %s using %s", metadata.SourceAddress(), metadata.String(), rule.RuleType().String(), connection.Chains().String())
 			case mode == Global:
 				log.Infoln("[UDP] %s --> %v using GLOBAL", metadata.SourceAddress(), metadata.String())
 			case mode == Direct:
@@ -268,17 +270,17 @@ func handleTCPConn(localConn C.ServerAdapter) {
 		return
 	}
 
-	remoteConn, err := proxy.Dial(metadata)
+	remoteConn, connection, err := proxy.Dialer(outbound.NewRootDialer()).DialContext(context.Background(), metadata)
 	if err != nil {
 		log.Warnln("dial %s error: %s", proxy.Name(), err.Error())
 		return
 	}
-	remoteConn = newTCPTracker(remoteConn, DefaultManager, metadata, rule)
+	remoteConn = newTCPTracker(remoteConn, connection, DefaultManager, metadata, rule)
 	defer remoteConn.Close()
 
 	switch true {
 	case rule != nil:
-		log.Infoln("[TCP] %s --> %v match %s using %s", metadata.SourceAddress(), metadata.String(), rule.RuleType().String(), remoteConn.Chains().String())
+		log.Infoln("[TCP] %s --> %v match %s using %s", metadata.SourceAddress(), metadata.String(), rule.RuleType().String(), connection.Chains().String())
 	case mode == Global:
 		log.Infoln("[TCP] %s --> %v using GLOBAL", metadata.SourceAddress(), metadata.String())
 	case mode == Direct:

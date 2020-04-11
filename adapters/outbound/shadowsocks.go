@@ -9,7 +9,6 @@ import (
 	"strconv"
 
 	"github.com/Dreamacro/clash/common/structure"
-	"github.com/Dreamacro/clash/component/dialer"
 	obfs "github.com/Dreamacro/clash/component/simple-obfs"
 	"github.com/Dreamacro/clash/component/socks5"
 	v2rayObfs "github.com/Dreamacro/clash/component/v2ray-plugin"
@@ -43,6 +42,11 @@ type ShadowSocksOption struct {
 	ObfsHost string `proxy:"obfs-host,omitempty"`
 }
 
+type shadowsocksDialer struct {
+	*ShadowSocks
+	parent C.ProxyDialer
+}
+
 type simpleObfsOption struct {
 	Mode string `obfs:"mode"`
 	Host string `obfs:"host,omitempty"`
@@ -58,7 +62,7 @@ type v2rayObfsOption struct {
 	Mux            bool              `obfs:"mux,omitempty"`
 }
 
-func (ss *ShadowSocks) StreamConn(c net.Conn, metadata *C.Metadata) (net.Conn, error) {
+func (ss *shadowsocksDialer) StreamConn(c net.Conn, metadata *C.Metadata) (net.Conn, error) {
 	switch ss.obfsMode {
 	case "tls":
 		c = obfs.NewTLSObfs(c, ss.obfsOption.Host)
@@ -77,30 +81,41 @@ func (ss *ShadowSocks) StreamConn(c net.Conn, metadata *C.Metadata) (net.Conn, e
 	return c, err
 }
 
-func (ss *ShadowSocks) DialContext(ctx context.Context, metadata *C.Metadata) (C.Conn, error) {
-	c, err := dialer.DialContext(ctx, "tcp", ss.addr)
+func (ss *shadowsocksDialer) DialContext(ctx context.Context, metadata *C.Metadata) (C.Conn, C.Connection, error) {
+	c, connection, err := ss.parent.DialContext(ctx, newRelayMetadata(C.TCP, ss.addr))
 	if err != nil {
-		return nil, fmt.Errorf("%s connect error: %w", ss.addr, err)
+		return nil, nil, fmt.Errorf("%s connect error: %w", ss.addr, err)
 	}
-	tcpKeepAlive(c)
 
 	c, err = ss.StreamConn(c, metadata)
-	return NewConn(c, ss), err
+
+	connection.AppendToChains(ss)
+	return c, connection, nil
 }
 
-func (ss *ShadowSocks) DialUDP(metadata *C.Metadata) (C.PacketConn, error) {
-	pc, err := dialer.ListenPacket("udp", "")
+func (ss *shadowsocksDialer) DialUDP(metadata *C.Metadata) (C.PacketConn, C.Connection, error) {
+	var pc net.PacketConn
+	pc, connection, err := ss.parent.DialUDP(newRelayMetadata(C.UDP, ss.addr))
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	addr, err := resolveUDPAddr("udp", ss.addr)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	pc = ss.cipher.PacketConn(pc)
-	return newPacketConn(&ssPacketConn{PacketConn: pc, rAddr: addr}, ss), nil
+
+	connection.AppendToChains(ss)
+	return &ssPacketConn{PacketConn: pc, rAddr: addr}, connection, nil
+}
+
+func (ss *ShadowSocks) Dialer(parent C.ProxyDialer) C.ProxyDialer {
+	return &shadowsocksDialer{
+		ShadowSocks: ss,
+		parent:      parent,
+	}
 }
 
 func (ss *ShadowSocks) MarshalJSON() ([]byte, error) {

@@ -9,7 +9,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Dreamacro/clash/component/dialer"
 	"github.com/Dreamacro/clash/component/resolver"
 	"github.com/Dreamacro/clash/component/vmess"
 	C "github.com/Dreamacro/clash/constant"
@@ -43,7 +42,12 @@ type HTTPOptions struct {
 	Headers map[string][]string `proxy:"headers,omitempty"`
 }
 
-func (v *Vmess) StreamConn(c net.Conn, metadata *C.Metadata) (net.Conn, error) {
+type vmessDialer struct {
+	*Vmess
+	parent C.ProxyDialer
+}
+
+func (v *vmessDialer) StreamConn(c net.Conn, metadata *C.Metadata) (net.Conn, error) {
 	var err error
 	switch v.option.Network {
 	case "ws":
@@ -98,39 +102,49 @@ func (v *Vmess) StreamConn(c net.Conn, metadata *C.Metadata) (net.Conn, error) {
 	return v.client.StreamConn(c, parseVmessAddr(metadata))
 }
 
-func (v *Vmess) DialContext(ctx context.Context, metadata *C.Metadata) (C.Conn, error) {
-	c, err := dialer.DialContext(ctx, "tcp", v.addr)
+func (v *vmessDialer) DialContext(ctx context.Context, metadata *C.Metadata) (C.Conn, C.Connection, error) {
+	c, connection, err := v.parent.DialContext(ctx, newRelayMetadata(C.TCP, v.addr))
 	if err != nil {
-		return nil, fmt.Errorf("%s connect error", v.addr)
+		return nil, nil, fmt.Errorf("%s connect error", v.addr)
 	}
-	tcpKeepAlive(c)
 
 	c, err = v.StreamConn(c, metadata)
-	return NewConn(c, v), err
+
+	connection.AppendToChains(v)
+	return c, connection, nil
 }
 
-func (v *Vmess) DialUDP(metadata *C.Metadata) (C.PacketConn, error) {
+func (v *vmessDialer) DialUDP(metadata *C.Metadata) (C.PacketConn, C.Connection, error) {
 	// vmess use stream-oriented udp, so clash needs a net.UDPAddr
 	if !metadata.Resolved() {
 		ip, err := resolver.ResolveIP(metadata.Host)
 		if err != nil {
-			return nil, errors.New("can't resolve ip")
+			return nil, nil, errors.New("can't resolve ip")
 		}
 		metadata.DstIP = ip
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), tcpTimeout)
 	defer cancel()
-	c, err := dialer.DialContext(ctx, "tcp", v.addr)
+
+	c, connection, err := v.parent.DialContext(ctx, newRelayMetadata(C.TCP, v.addr))
 	if err != nil {
-		return nil, fmt.Errorf("%s connect error", v.addr)
+		return nil, nil, fmt.Errorf("%s connect error", v.addr)
 	}
-	tcpKeepAlive(c)
 	c, err = v.StreamConn(c, metadata)
 	if err != nil {
-		return nil, fmt.Errorf("new vmess client error: %v", err)
+		return nil, nil, fmt.Errorf("new vmess client error: %v", err)
 	}
-	return newPacketConn(&vmessPacketConn{Conn: c, rAddr: metadata.UDPAddr()}, v), nil
+
+	connection.AppendToChains(v)
+	return &vmessPacketConn{Conn: c, rAddr: metadata.UDPAddr()}, connection, nil
+}
+
+func (v *Vmess) Dialer(parent C.ProxyDialer) C.ProxyDialer {
+	return &vmessDialer{
+		Vmess:  v,
+		parent: parent,
+	}
 }
 
 func NewVmess(option VmessOption) (*Vmess, error) {

@@ -13,7 +13,6 @@ import (
 	"net/url"
 	"strconv"
 
-	"github.com/Dreamacro/clash/component/dialer"
 	C "github.com/Dreamacro/clash/constant"
 )
 
@@ -34,7 +33,12 @@ type HttpOption struct {
 	SkipCertVerify bool   `proxy:"skip-cert-verify,omitempty"`
 }
 
-func (h *Http) StreamConn(c net.Conn, metadata *C.Metadata) (net.Conn, error) {
+type httpDialer struct {
+	*Http
+	parent C.ProxyDialer
+}
+
+func (h *httpDialer) StreamConn(c net.Conn, metadata *C.Metadata) (net.Conn, error) {
 	if h.tlsConfig != nil {
 		cc := tls.Client(c, h.tlsConfig)
 		err := cc.Handshake()
@@ -50,19 +54,30 @@ func (h *Http) StreamConn(c net.Conn, metadata *C.Metadata) (net.Conn, error) {
 	return c, nil
 }
 
-func (h *Http) DialContext(ctx context.Context, metadata *C.Metadata) (C.Conn, error) {
-	c, err := dialer.DialContext(ctx, "tcp", h.addr)
+func (h *httpDialer) DialContext(ctx context.Context, metadata *C.Metadata) (C.Conn, C.Connection, error) {
+	c, connection, err := h.parent.DialContext(ctx, newRelayMetadata(C.TCP, h.addr))
 	if err != nil {
-		return nil, fmt.Errorf("%s connect error: %w", h.addr, err)
+		return nil, nil, fmt.Errorf("%s connect error: %w", h.addr, err)
 	}
-	tcpKeepAlive(c)
 
 	c, err = h.StreamConn(c, metadata)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	return NewConn(c, h), nil
+	connection.AppendToChains(h)
+	return c, connection, nil
+}
+
+func (h *httpDialer) DialUDP(_ *C.Metadata) (C.PacketConn, C.Connection, error) {
+	return nil, nil, errors.New("unsupported")
+}
+
+func (h *Http) Dialer(parent C.ProxyDialer) C.ProxyDialer {
+	return &httpDialer{
+		Http:   h,
+		parent: parent,
+	}
 }
 
 func (h *Http) shakeHand(metadata *C.Metadata, rw io.ReadWriter) error {

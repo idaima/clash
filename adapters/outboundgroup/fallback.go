@@ -1,7 +1,6 @@
 package outboundgroup
 
 import (
-	"context"
 	"encoding/json"
 
 	"github.com/Dreamacro/clash/adapters/outbound"
@@ -21,22 +20,9 @@ func (f *Fallback) Now() string {
 	return proxy.Name()
 }
 
-func (f *Fallback) DialContext(ctx context.Context, metadata *C.Metadata) (C.Conn, error) {
-	proxy := f.findAliveProxy()
-	c, err := proxy.DialContext(ctx, metadata)
-	if err == nil {
-		c.AppendToChains(f)
-	}
-	return c, err
-}
-
-func (f *Fallback) DialUDP(metadata *C.Metadata) (C.PacketConn, error) {
-	proxy := f.findAliveProxy()
-	pc, err := proxy.DialUDP(metadata)
-	if err == nil {
-		pc.AppendToChains(f)
-	}
-	return pc, err
+func (f *Fallback) Dialer(parent C.ProxyDialer) C.ProxyDialer {
+	p := f.findAliveProxy()
+	return newGroupDialer(f, p.Dialer(parent))
 }
 
 func (f *Fallback) SupportUDP() bool {

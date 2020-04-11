@@ -54,7 +54,7 @@ func (tt *tcpTracker) Close() error {
 	return tt.Conn.Close()
 }
 
-func newTCPTracker(conn C.Conn, manager *Manager, metadata *C.Metadata, rule C.Rule) *tcpTracker {
+func newTCPTracker(conn C.Conn, connection C.Connection, manager *Manager, metadata *C.Metadata, rule C.Rule) *tcpTracker {
 	uuid, _ := uuid.NewV4()
 	ruleType := ""
 	if rule != nil {
@@ -68,7 +68,7 @@ func newTCPTracker(conn C.Conn, manager *Manager, metadata *C.Metadata, rule C.R
 			UUID:     uuid,
 			Start:    time.Now(),
 			Metadata: metadata,
-			Chain:    conn.Chains(),
+			Chain:    connection.Chains(),
 			Rule:     ruleType,
 		},
 	}
@@ -116,7 +116,7 @@ func (ut *udpTracker) Close() error {
 	return ut.PacketConn.Close()
 }
 
-func newUDPTracker(conn C.PacketConn, manager *Manager, metadata *C.Metadata, rule C.Rule) *udpTracker {
+func newUDPTracker(conn C.PacketConn, connection C.Connection, manager *Manager, metadata *C.Metadata, rule C.Rule) *udpTracker {
 	uuid, _ := uuid.NewV4()
 	ruleType := ""
 	if rule != nil {
@@ -130,7 +130,7 @@ func newUDPTracker(conn C.PacketConn, manager *Manager, metadata *C.Metadata, ru
 			UUID:     uuid,
 			Start:    time.Now(),
 			Metadata: metadata,
-			Chain:    conn.Chains(),
+			Chain:    connection.Chains(),
 			Rule:     ruleType,
 		},
 	}

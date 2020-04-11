@@ -3,7 +3,6 @@ package outbound
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"net"
 	"net/http"
 	"time"
@@ -31,14 +30,6 @@ func (b *Base) Type() C.AdapterType {
 	return b.tp
 }
 
-func (b *Base) StreamConn(c net.Conn, metadata *C.Metadata) (net.Conn, error) {
-	return c, errors.New("no support")
-}
-
-func (b *Base) DialUDP(metadata *C.Metadata) (C.PacketConn, error) {
-	return nil, errors.New("no support")
-}
-
 func (b *Base) SupportUDP() bool {
 	return b.udp
 }
@@ -57,43 +48,22 @@ func NewBase(name string, addr string, tp C.AdapterType, udp bool) *Base {
 	return &Base{name, addr, tp, udp}
 }
 
-type conn struct {
-	net.Conn
+type connection struct {
 	chain C.Chain
 }
 
-func (c *conn) Chains() C.Chain {
+func (c *connection) Chains() C.Chain {
 	return c.chain
 }
 
-func (c *conn) AppendToChains(a C.ProxyAdapter) {
+func (c *connection) AppendToChains(a C.ProxyAdapter) {
 	c.chain = append(c.chain, a.Name())
 }
 
-func NewConn(c net.Conn, a C.ProxyAdapter) C.Conn {
-	return &conn{c, []string{a.Name()}}
-}
-
-type PacketConn interface {
-	net.PacketConn
-	WriteWithMetadata(p []byte, metadata *C.Metadata) (n int, err error)
-}
-
-type packetConn struct {
-	PacketConn
-	chain C.Chain
-}
-
-func (c *packetConn) Chains() C.Chain {
-	return c.chain
-}
-
-func (c *packetConn) AppendToChains(a C.ProxyAdapter) {
-	c.chain = append(c.chain, a.Name())
-}
-
-func newPacketConn(pc PacketConn, a C.ProxyAdapter) C.PacketConn {
-	return &packetConn{pc, []string{a.Name()}}
+func newConnection() C.Connection {
+	return &connection{
+		chain: C.Chain{},
+	}
 }
 
 type Proxy struct {
@@ -102,22 +72,32 @@ type Proxy struct {
 	alive   bool
 }
 
+type proxyDialer struct {
+	*Proxy
+	dialer C.ProxyDialer
+}
+
+func (p *proxyDialer) DialContext(ctx context.Context, metadata *C.Metadata) (C.Conn, C.Connection, error) {
+	conn, connection, err := p.dialer.DialContext(ctx, metadata)
+	if err != nil {
+		p.alive = false
+	}
+	return conn, connection, err
+}
+
+func (p *proxyDialer) DialUDP(metadata *C.Metadata) (C.PacketConn, C.Connection, error) {
+	return p.dialer.DialUDP(metadata)
+}
+
 func (p *Proxy) Alive() bool {
 	return p.alive
 }
 
-func (p *Proxy) Dial(metadata *C.Metadata) (C.Conn, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), tcpTimeout)
-	defer cancel()
-	return p.DialContext(ctx, metadata)
-}
-
-func (p *Proxy) DialContext(ctx context.Context, metadata *C.Metadata) (C.Conn, error) {
-	conn, err := p.ProxyAdapter.DialContext(ctx, metadata)
-	if err != nil {
-		p.alive = false
+func (p *Proxy) Dialer(parent C.ProxyDialer) C.ProxyDialer {
+	return &proxyDialer{
+		Proxy:  p,
+		dialer: p.ProxyAdapter.Dialer(parent),
 	}
-	return conn, err
 }
 
 func (p *Proxy) DelayHistory() []C.DelayHistory {
@@ -154,7 +134,7 @@ func (p *Proxy) MarshalJSON() ([]byte, error) {
 	}
 
 	mapping := map[string]interface{}{}
-	json.Unmarshal(inner, &mapping)
+	_ = json.Unmarshal(inner, &mapping)
 	mapping["history"] = p.DelayHistory()
 	mapping["name"] = p.Name()
 	return json.Marshal(mapping)
@@ -180,11 +160,7 @@ func (p *Proxy) URLTest(ctx context.Context, url string) (t uint16, err error) {
 	}
 
 	start := time.Now()
-	instance, err := p.DialContext(ctx, &addr)
-	if err != nil {
-		return
-	}
-	defer instance.Close()
+	dialer := p.Dialer(NewRootDialer())
 
 	req, err := http.NewRequest(http.MethodHead, url, nil)
 	if err != nil {
@@ -193,8 +169,9 @@ func (p *Proxy) URLTest(ctx context.Context, url string) (t uint16, err error) {
 	req = req.WithContext(ctx)
 
 	transport := &http.Transport{
-		Dial: func(string, string) (net.Conn, error) {
-			return instance, nil
+		DialContext: func(ctx context.Context, network, _ string) (conn net.Conn, err error) {
+			conn, _, err = dialer.DialContext(ctx, addr)
+			return
 		},
 		// from http.DefaultTransport
 		MaxIdleConns:          100,
