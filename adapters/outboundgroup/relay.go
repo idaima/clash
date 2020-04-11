@@ -45,7 +45,7 @@ func (r *Relay) proxies() []C.Proxy {
 
 func NewRelay(name string, providers []provider.ProxyProvider) *Relay {
 	return &Relay{
-		Base:      outbound.NewBase(name, "", C.Relay, false),
+		Base:      outbound.NewBase(name, "", C.Relay, true),
 		single:    singledo.NewSingle(defaultGetProxiesDuration),
 		providers: providers,
 	}
