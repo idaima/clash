@@ -21,6 +21,11 @@ type LoadBalance struct {
 	providers []provider.ProxyProvider
 }
 
+type loadBalanceDialer struct {
+	*LoadBalance
+	parent C.ProxyDialer
+}
+
 func getKey(metadata *C.Metadata) string {
 	if metadata.Host != "" {
 		// ip host
@@ -52,10 +57,17 @@ func jumpHash(key uint64, buckets int32) int32 {
 	return int32(b)
 }
 
-func (lb *LoadBalance) DialContext(ctx context.Context, metadata *C.Metadata) (c C.Conn, err error) {
+func (lb *LoadBalance) Dialer(parent C.ProxyDialer) C.ProxyDialer {
+	return &loadBalanceDialer{
+		LoadBalance: lb,
+		parent:      parent,
+	}
+}
+
+func (lb *loadBalanceDialer) DialContext(ctx context.Context, metadata *C.Metadata) (c C.Conn, connection C.Connection, err error) {
 	defer func() {
 		if err == nil {
-			c.AppendToChains(lb)
+			connection.AppendToChains(lb)
 		}
 	}()
 
@@ -66,18 +78,18 @@ func (lb *LoadBalance) DialContext(ctx context.Context, metadata *C.Metadata) (c
 		idx := jumpHash(key, buckets)
 		proxy := proxies[idx]
 		if proxy.Alive() {
-			c, err = proxy.DialContext(ctx, metadata)
+			c, connection, err = proxy.Dialer(lb.parent).DialContext(ctx, metadata)
 			return
 		}
 	}
-	c, err = proxies[0].DialContext(ctx, metadata)
+	c, connection, err = proxies[0].Dialer(lb.parent).DialContext(ctx, metadata)
 	return
 }
 
-func (lb *LoadBalance) DialUDP(metadata *C.Metadata) (pc C.PacketConn, err error) {
+func (lb *loadBalanceDialer) DialUDP(metadata *C.Metadata) (pc C.PacketConn, connection C.Connection, err error) {
 	defer func() {
 		if err == nil {
-			pc.AppendToChains(lb)
+			connection.AppendToChains(lb)
 		}
 	}()
 
@@ -88,11 +100,12 @@ func (lb *LoadBalance) DialUDP(metadata *C.Metadata) (pc C.PacketConn, err error
 		idx := jumpHash(key, buckets)
 		proxy := proxies[idx]
 		if proxy.Alive() {
-			return proxy.DialUDP(metadata)
+			pc, connection, err = proxy.Dialer(lb.parent).DialUDP(metadata)
+			return
 		}
 	}
-
-	return proxies[0].DialUDP(metadata)
+	pc, connection, err = proxies[0].Dialer(lb.parent).DialUDP(metadata)
+	return
 }
 
 func (lb *LoadBalance) SupportUDP() bool {

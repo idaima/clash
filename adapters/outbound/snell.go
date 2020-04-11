@@ -2,12 +2,12 @@ package outbound
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"strconv"
 
 	"github.com/Dreamacro/clash/common/structure"
-	"github.com/Dreamacro/clash/component/dialer"
 	obfs "github.com/Dreamacro/clash/component/simple-obfs"
 	"github.com/Dreamacro/clash/component/snell"
 	C "github.com/Dreamacro/clash/constant"
@@ -27,7 +27,12 @@ type SnellOption struct {
 	ObfsOpts map[string]interface{} `proxy:"obfs-opts,omitempty"`
 }
 
-func (s *Snell) StreamConn(c net.Conn, metadata *C.Metadata) (net.Conn, error) {
+type snellDialer struct {
+	*Snell
+	parent C.ProxyDialer
+}
+
+func (s *snellDialer) StreamConn(c net.Conn, metadata *C.Metadata) (net.Conn, error) {
 	switch s.obfsOption.Mode {
 	case "tls":
 		c = obfs.NewTLSObfs(c, s.obfsOption.Host)
@@ -41,15 +46,27 @@ func (s *Snell) StreamConn(c net.Conn, metadata *C.Metadata) (net.Conn, error) {
 	return c, err
 }
 
-func (s *Snell) DialContext(ctx context.Context, metadata *C.Metadata) (C.Conn, error) {
-	c, err := dialer.DialContext(ctx, "tcp", s.addr)
+func (s *snellDialer) DialContext(ctx context.Context, metadata *C.Metadata) (C.Conn, C.Connection, error) {
+	c, connection, err := s.parent.DialContext(ctx, newRelayMetadata(C.TCP, s.addr))
 	if err != nil {
-		return nil, fmt.Errorf("%s connect error: %w", s.addr, err)
+		return nil, nil, fmt.Errorf("%s connect error: %w", s.addr, err)
 	}
-	tcpKeepAlive(c)
 
 	c, err = s.StreamConn(c, metadata)
-	return NewConn(c, s), err
+
+	connection.AppendToChains(s)
+	return c, connection, nil
+}
+
+func (s *snellDialer) DialUDP(metadata *C.Metadata) (C.PacketConn, C.Connection, error) {
+	return nil, nil, errors.New("unsupported")
+}
+
+func (s *Snell) Dialer(parent C.ProxyDialer) C.ProxyDialer {
+	return &snellDialer{
+		Snell:  s,
+		parent: parent,
+	}
 }
 
 func NewSnell(option SnellOption) (*Snell, error) {

@@ -10,7 +10,6 @@ import (
 	"net"
 	"strconv"
 
-	"github.com/Dreamacro/clash/component/dialer"
 	"github.com/Dreamacro/clash/component/socks5"
 	C "github.com/Dreamacro/clash/constant"
 )
@@ -35,7 +34,12 @@ type Socks5Option struct {
 	SkipCertVerify bool   `proxy:"skip-cert-verify,omitempty"`
 }
 
-func (ss *Socks5) StreamConn(c net.Conn, metadata *C.Metadata) (net.Conn, error) {
+type socks5Dialer struct {
+	*Socks5
+	parent C.ProxyDialer
+}
+
+func (ss *socks5Dialer) StreamConn(c net.Conn, metadata *C.Metadata) (net.Conn, error) {
 	if ss.tls {
 		cc := tls.Client(c, ss.tlsConfig)
 		err := cc.Handshake()
@@ -58,25 +62,25 @@ func (ss *Socks5) StreamConn(c net.Conn, metadata *C.Metadata) (net.Conn, error)
 	return c, nil
 }
 
-func (ss *Socks5) DialContext(ctx context.Context, metadata *C.Metadata) (C.Conn, error) {
-	c, err := dialer.DialContext(ctx, "tcp", ss.addr)
+func (ss *socks5Dialer) DialContext(ctx context.Context, metadata *C.Metadata) (C.Conn, C.Connection, error) {
+	c, connection, err := ss.parent.DialContext(ctx, newRelayMetadata(C.TCP, ss.addr))
 	if err != nil {
-		return nil, fmt.Errorf("%s connect error: %w", ss.addr, err)
+		return nil, nil, fmt.Errorf("%s connect error: %w", ss.addr, err)
 	}
-	tcpKeepAlive(c)
 
 	c, err = ss.StreamConn(c, metadata)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	return NewConn(c, ss), nil
+	connection.AppendToChains(ss)
+	return c, connection, nil
 }
 
-func (ss *Socks5) DialUDP(metadata *C.Metadata) (_ C.PacketConn, err error) {
+func (ss *socks5Dialer) DialUDP(metadata *C.Metadata) (_ C.PacketConn, c2 C.Connection, err error) {
 	ctx, cancel := context.WithTimeout(context.Background(), tcpTimeout)
 	defer cancel()
-	c, err := dialer.DialContext(ctx, "tcp", ss.addr)
+	c, _, err := ss.parent.DialContext(ctx, newRelayMetadata(C.TCP, ss.addr))
 	if err != nil {
 		err = fmt.Errorf("%s connect error: %w", ss.addr, err)
 		return
@@ -94,7 +98,6 @@ func (ss *Socks5) DialUDP(metadata *C.Metadata) (_ C.PacketConn, err error) {
 		}
 	}()
 
-	tcpKeepAlive(c)
 	var user *socks5.User
 	if ss.user != "" {
 		user = &socks5.User{
@@ -109,7 +112,7 @@ func (ss *Socks5) DialUDP(metadata *C.Metadata) (_ C.PacketConn, err error) {
 		return
 	}
 
-	pc, err := dialer.ListenPacket("udp", "")
+	pc, connection, err := ss.parent.DialUDP(newRelayMetadata(C.UDP, ss.addr))
 	if err != nil {
 		return
 	}
@@ -122,7 +125,15 @@ func (ss *Socks5) DialUDP(metadata *C.Metadata) (_ C.PacketConn, err error) {
 		pc.Close()
 	}()
 
-	return newPacketConn(&socksPacketConn{PacketConn: pc, rAddr: bindAddr.UDPAddr(), tcpConn: c}, ss), nil
+	connection.AppendToChains(ss)
+	return &socksPacketConn{PacketConn: pc, rAddr: bindAddr.UDPAddr(), tcpConn: c}, connection, nil
+}
+
+func (s *Socks5) Dialer(parent C.ProxyDialer) C.ProxyDialer {
+	return &socks5Dialer{
+		Socks5: s,
+		parent: parent,
+	}
 }
 
 func NewSocks5(option Socks5Option) *Socks5 {

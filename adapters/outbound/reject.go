@@ -14,12 +14,22 @@ type Reject struct {
 	*Base
 }
 
-func (r *Reject) DialContext(ctx context.Context, metadata *C.Metadata) (C.Conn, error) {
-	return NewConn(&NopConn{}, r), nil
+type rejectDialer struct {
+	*Reject
 }
 
-func (r *Reject) DialUDP(metadata *C.Metadata) (C.PacketConn, error) {
-	return nil, errors.New("match reject rule")
+func (r *rejectDialer) DialContext(_ context.Context, _ *C.Metadata) (C.Conn, C.Connection, error) {
+	connection := newConnection()
+	connection.AppendToChains(r)
+	return &NopConn{}, connection, nil
+}
+
+func (r *rejectDialer) DialUDP(metadata *C.Metadata) (C.PacketConn, C.Connection, error) {
+	return nil, nil, errors.New("match reject rule")
+}
+
+func (r *Reject) Dialer(parent C.ProxyDialer) C.ProxyDialer {
+	return &rejectDialer{r}
 }
 
 func NewReject() *Reject {
@@ -34,11 +44,11 @@ func NewReject() *Reject {
 
 type NopConn struct{}
 
-func (rw *NopConn) Read(b []byte) (int, error) {
+func (rw *NopConn) Read(_ []byte) (int, error) {
 	return 0, io.EOF
 }
 
-func (rw *NopConn) Write(b []byte) (int, error) {
+func (rw *NopConn) Write(_ []byte) (int, error) {
 	return 0, io.EOF
 }
 

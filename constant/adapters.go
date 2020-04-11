@@ -51,21 +51,17 @@ func (c Chain) String() string {
 
 type Conn interface {
 	net.Conn
-	Connection
 }
 
 type PacketConn interface {
 	net.PacketConn
-	Connection
 	WriteWithMetadata(p []byte, metadata *Metadata) (n int, err error)
 }
 
 type ProxyAdapter interface {
 	Name() string
 	Type() AdapterType
-	StreamConn(c net.Conn, metadata *Metadata) (net.Conn, error)
-	DialContext(ctx context.Context, metadata *Metadata) (Conn, error)
-	DialUDP(metadata *Metadata) (PacketConn, error)
+	Dialer(parent ProxyDialer) ProxyDialer
 	SupportUDP() bool
 	MarshalJSON() ([]byte, error)
 	Addr() string
@@ -80,9 +76,13 @@ type Proxy interface {
 	ProxyAdapter
 	Alive() bool
 	DelayHistory() []DelayHistory
-	Dial(metadata *Metadata) (Conn, error)
 	LastDelay() uint16
 	URLTest(ctx context.Context, url string) (uint16, error)
+}
+
+type ProxyDialer interface {
+	DialContext(ctx context.Context, metadata *Metadata) (Conn, Connection, error)
+	DialUDP(metadata *Metadata) (PacketConn, Connection, error)
 }
 
 // AdapterType is enum of adapter type

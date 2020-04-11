@@ -2,10 +2,6 @@ package outbound
 
 import (
 	"context"
-	"net"
-
-	"github.com/Dreamacro/clash/component/dialer"
-	"github.com/Dreamacro/clash/component/resolver"
 	C "github.com/Dreamacro/clash/constant"
 )
 
@@ -13,41 +9,36 @@ type Direct struct {
 	*Base
 }
 
-func (d *Direct) DialContext(ctx context.Context, metadata *C.Metadata) (C.Conn, error) {
-	address := net.JoinHostPort(metadata.Host, metadata.DstPort)
-	if metadata.DstIP != nil {
-		address = net.JoinHostPort(metadata.DstIP.String(), metadata.DstPort)
-	}
+type directDialer struct {
+	*Direct
+	parent C.ProxyDialer
+}
 
-	c, err := dialer.DialContext(ctx, "tcp", address)
+func (d *directDialer) DialContext(ctx context.Context, metadata *C.Metadata) (C.Conn, C.Connection, error) {
+	c, connection, err := d.parent.DialContext(ctx, metadata)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	tcpKeepAlive(c)
-	return NewConn(c, d), nil
+
+	connection.AppendToChains(d)
+	return c, connection, nil
 }
 
-func (d *Direct) DialUDP(metadata *C.Metadata) (C.PacketConn, error) {
-	pc, err := dialer.ListenPacket("udp", "")
+func (d *directDialer) DialUDP(metadata *C.Metadata) (C.PacketConn, C.Connection, error) {
+	pc, connection, err := d.parent.DialUDP(metadata)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return newPacketConn(&directPacketConn{pc}, d), nil
+
+	connection.AppendToChains(d)
+	return pc, connection, nil
 }
 
-type directPacketConn struct {
-	net.PacketConn
-}
-
-func (dp *directPacketConn) WriteWithMetadata(p []byte, metadata *C.Metadata) (n int, err error) {
-	if !metadata.Resolved() {
-		ip, err := resolver.ResolveIP(metadata.Host)
-		if err != nil {
-			return 0, err
-		}
-		metadata.DstIP = ip
+func (d *Direct) Dialer(parent C.ProxyDialer) C.ProxyDialer {
+	return &directDialer{
+		Direct: d,
+		parent: parent,
 	}
-	return dp.WriteTo(p, metadata.UDPAddr())
 }
 
 func NewDirect() *Direct {

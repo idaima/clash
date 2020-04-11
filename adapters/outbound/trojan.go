@@ -7,7 +7,6 @@ import (
 	"net"
 	"strconv"
 
-	"github.com/Dreamacro/clash/component/dialer"
 	"github.com/Dreamacro/clash/component/trojan"
 	C "github.com/Dreamacro/clash/constant"
 )
@@ -28,7 +27,12 @@ type TrojanOption struct {
 	UDP            bool     `proxy:"udp,omitempty"`
 }
 
-func (t *Trojan) StreamConn(c net.Conn, metadata *C.Metadata) (net.Conn, error) {
+type trojanDialer struct {
+	*Trojan
+	parent C.ProxyDialer
+}
+
+func (t *trojanDialer) StreamConn(c net.Conn, metadata *C.Metadata) (net.Conn, error) {
 	c, err := t.instance.StreamConn(c)
 	if err != nil {
 		return nil, fmt.Errorf("%s connect error: %w", t.addr, err)
@@ -38,40 +42,49 @@ func (t *Trojan) StreamConn(c net.Conn, metadata *C.Metadata) (net.Conn, error) 
 	return c, err
 }
 
-func (t *Trojan) DialContext(ctx context.Context, metadata *C.Metadata) (C.Conn, error) {
-	c, err := dialer.DialContext(ctx, "tcp", t.addr)
+func (t *trojanDialer) DialContext(ctx context.Context, metadata *C.Metadata) (C.Conn, C.Connection, error) {
+	c, connection, err := t.parent.DialContext(ctx, newRelayMetadata(C.TCP, t.addr))
 	if err != nil {
-		return nil, fmt.Errorf("%s connect error: %w", t.addr, err)
+		return nil, nil, fmt.Errorf("%s connect error: %w", t.addr, err)
 	}
-	tcpKeepAlive(c)
 	c, err = t.StreamConn(c, metadata)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	return NewConn(c, t), err
+	connection.AppendToChains(t)
+	return c, connection, nil
 }
 
-func (t *Trojan) DialUDP(metadata *C.Metadata) (C.PacketConn, error) {
+func (t *trojanDialer) DialUDP(metadata *C.Metadata) (C.PacketConn, C.Connection, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), tcpTimeout)
 	defer cancel()
-	c, err := dialer.DialContext(ctx, "tcp", t.addr)
+
+	c, connection, err := t.parent.DialContext(ctx, newRelayMetadata(C.TCP, t.addr))
 	if err != nil {
-		return nil, fmt.Errorf("%s connect error: %w", t.addr, err)
+		return nil, nil, fmt.Errorf("%s connect error: %w", t.addr, err)
 	}
-	tcpKeepAlive(c)
 	c, err = t.instance.StreamConn(c)
 	if err != nil {
-		return nil, fmt.Errorf("%s connect error: %w", t.addr, err)
+		return nil, nil, fmt.Errorf("%s connect error: %w", t.addr, err)
 	}
 
 	err = t.instance.WriteHeader(c, trojan.CommandUDP, serializesSocksAddr(metadata))
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	pc := t.instance.PacketConn(c)
-	return newPacketConn(&trojanPacketConn{pc, c}, t), err
+
+	connection.AppendToChains(t)
+	return &trojanPacketConn{pc, c}, connection, nil
+}
+
+func (t *Trojan) Dialer(parent C.ProxyDialer) C.ProxyDialer {
+	return &trojanDialer{
+		Trojan: t,
+		parent: parent,
+	}
 }
 
 func (t *Trojan) MarshalJSON() ([]byte, error) {

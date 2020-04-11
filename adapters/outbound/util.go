@@ -24,7 +24,7 @@ var (
 	once                     sync.Once
 )
 
-func urlToMetadata(rawURL string) (addr C.Metadata, err error) {
+func urlToMetadata(rawURL string) (addr *C.Metadata, err error) {
 	u, err := url.Parse(rawURL)
 	if err != nil {
 		return
@@ -43,20 +43,13 @@ func urlToMetadata(rawURL string) (addr C.Metadata, err error) {
 		}
 	}
 
-	addr = C.Metadata{
+	addr = &C.Metadata{
 		AddrType: C.AtypDomainName,
 		Host:     u.Hostname(),
 		DstIP:    nil,
 		DstPort:  port,
 	}
 	return
-}
-
-func tcpKeepAlive(c net.Conn) {
-	if tcp, ok := c.(*net.TCPConn); ok {
-		tcp.SetKeepAlive(true)
-		tcp.SetKeepAlivePeriod(30 * time.Second)
-	}
 }
 
 func getClientSessionCache() tls.ClientSessionCache {
@@ -97,4 +90,31 @@ func resolveUDPAddr(network, address string) (*net.UDPAddr, error) {
 		return nil, err
 	}
 	return net.ResolveUDPAddr(network, net.JoinHostPort(ip.String(), port))
+}
+
+func newRelayMetadata(network C.NetWork, addr string) *C.Metadata {
+	host, port, _ := net.SplitHostPort(addr)
+
+	result := &C.Metadata{
+		NetWork: network,
+		Type:    C.RELAY,
+		DstIP:   net.ParseIP(host),
+		SrcIP:   net.IPv4zero,
+		SrcPort: "0",
+		DstPort: port,
+		Host:    host,
+	}
+
+	switch {
+	case result.DstIP == nil:
+		result.AddrType = C.AtypDomainName
+	case result.DstIP.To4() != nil:
+		result.AddrType = C.AtypIPv4
+	case result.DstIP.To16() != nil:
+		result.AddrType = C.AtypIPv6
+	default:
+		result.AddrType = 0
+	}
+
+	return result
 }

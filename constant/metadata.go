@@ -19,6 +19,7 @@ const (
 	HTTPCONNECT
 	SOCKS
 	REDIR
+	RELAY
 )
 
 type NetWork int
