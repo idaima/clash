@@ -10,7 +10,7 @@ require (
 	github.com/go-chi/render v1.0.1
 	github.com/gofrs/uuid v3.2.0+incompatible
 	github.com/gorilla/websocket v1.4.2
-	github.com/kr328/tun2socket v0.0.0-20200408030108-2c2effd1201d
+	github.com/kr328/tun2socket v0.0.0-20200415021819-256b721ac9a4
 	github.com/miekg/dns v1.1.29
 	github.com/oschwald/geoip2-golang v1.4.0
 	github.com/sirupsen/logrus v1.4.2
