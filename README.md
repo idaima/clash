@@ -20,7 +20,7 @@
 ## Features
 
 - Local HTTP/HTTPS/SOCKS server with/without authentication
-- VMess, Shadowsocks, Trojan (experimental), Snell protocol support for remote connections. UDP is supported.
+- VMess, Shadowsocks, ShadowsocksR, Trojan (experimental), Snell protocol support for remote connections. UDP is supported.
 - Built-in DNS server that aims to minimize DNS pollution attacks, supports DoH/DoT upstream. Fake IP is also supported.
 - Rules based off domains, GEOIP, IP CIDR or ports to forward packets to different nodes
 - Remote groups allow users to implement powerful rules. Supports automatic fallback, load balancing or auto select node based off latency
@@ -378,6 +378,8 @@ https://clash.gitbook.io/
 [riobard/go-shadowsocks2](https://github.com/riobard/go-shadowsocks2)
 
 [v2ray/v2ray-core](https://github.com/v2ray/v2ray-core)
+
+[ShadowsocksR](https://github.com/mzz2017/shadowsocksR)
 
 ## License
 
