@@ -14,6 +14,7 @@ import (
 	SSRObfs "github.com/mzz2017/shadowsocksR/obfs"
 	SSRProtocol "github.com/mzz2017/shadowsocksR/protocol"
 	SSRServer "github.com/mzz2017/shadowsocksR/ssr"
+	cipher2 "github.com/mzz2017/shadowsocksR/streamCipher"
 )
 
 type ShadowSocksR struct {
@@ -35,17 +36,17 @@ type ShadowSocksR struct {
 }
 
 type ShadowSocksROption struct {
-	Name          string `proxy:"name"`
-	Server        string `proxy:"server"`
-	Port          int    `proxy:"port"`
-	Password      string `proxy:"password"`
-	Cipher        string `proxy:"cipher"`
-	Protocol      string `proxy:"protocol"`
+	Name     string `proxy:"name"`
+	Server   string `proxy:"server"`
+	Port     int    `proxy:"port"`
+	Password string `proxy:"password"`
+	Cipher   string `proxy:"cipher"`
+	Protocol string `proxy:"protocol"`
 	// ProtocolParam string `proxy:"protocol-param"`
 	ProtocolParam string `proxy:"protocolparam"`
 	Obfs          string `proxy:"obfs"`
 	// ObfsParam     string `proxy:"obfs-param"`
-	ObfsParam     string `proxy:"obfsparam"`
+	ObfsParam string `proxy:"obfsparam"`
 
 	// TODO: Add UDP support
 	// UDP bool `proxy:"udp,omitempty"`
@@ -58,7 +59,7 @@ func (ssr *ShadowSocksR) DialContext(ctx context.Context, metadata *C.Metadata) 
 	}
 	tcpKeepAlive(c)
 
-	cipher, err := SSRUtils.NewStreamCipher(ssr.cipher, ssr.password)
+	cipher, err := cipher2.NewStreamCipher(ssr.cipher, ssr.password)
 	if err != nil {
 		return nil, fmt.Errorf("ssr %s initialize error: %w", ssr.server, err)
 	}
